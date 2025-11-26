@@ -1,6 +1,6 @@
 // ------------------------------------------------------
-// REAL MARKET PRICE + SIMULATED MARKET FEED (NEOSTOX TYPE)
-// Render FREE HOSTING + Yahoo Price Proxy Version
+// REAL MARKET PRICE + SIMULATED MARKET FEED (NEOSTOX STYLE)
+// Render FREE HOSTING + Yahoo Query2 Version (NO PROXY)
 // ------------------------------------------------------
 
 const WebSocket = require("ws");
@@ -11,28 +11,26 @@ const fetch = (...args) => import('node-fetch').then(({ default: f }) => f(...ar
 const PORT = process.env.PORT || 10000;
 
 // INTERVALS
-const TICK_INTERVAL = 500;         // WebSocket tick frequency (500ms)
-const REAL_FETCH_INTERVAL = 4000;  // Real price update frequency (4 sec)
+const TICK_INTERVAL = 500;         // WS ticks every 500ms
+const REAL_FETCH_INTERVAL = 4000;  // Real price update every 4 sec
 
-// NSE STOCKS (You can add more symbols anytime)
+// NSE STOCK LIST
 const SYMBOLS = [
   "RELIANCE.NS","TCS.NS","INFY.NS","SBIN.NS","HDFCBANK.NS","ICICIBANK.NS",
   "TATAMOTORS.NS","HINDUNILVR.NS","LT.NS","WIPRO.NS","SUNPHARMA.NS",
   "AXISBANK.NS","POWERGRID.NS","ASIANPAINT.NS"
 ];
 
-// Store fetched real prices
+// REAL PRICE STORE
 let REAL = {};
 
 // ------------------------------------------------------
-// 1️⃣ REAL MARKET PRICE FETCH (WITH PROXY)
+// 1️⃣ REAL MARKET FETCH USING YAHOO QUERY2 (VERY STABLE)
 // ------------------------------------------------------
 async function fetchReal(symbol) {
   try {
-    const yurl = `https://query1.finance.yahoo.com/v7/finance/quote?symbols=${symbol}`;
-    const proxy = `https://api.allorigins.win/raw?url=${encodeURIComponent(yurl)}`;
-
-    const r = await fetch(proxy);
+    const url = `https://query2.finance.yahoo.com/v7/finance/quote?symbols=${symbol}`;
+    const r = await fetch(url);
     const d = await r.json();
 
     return d.quoteResponse.result[0]?.regularMarketPrice || null;
@@ -42,7 +40,7 @@ async function fetchReal(symbol) {
   }
 }
 
-// Fetch real prices continuously
+// Update real prices every 4 sec
 async function updateReal() {
   console.log("Updating real prices...");
   for (let s of SYMBOLS) {
@@ -51,38 +49,36 @@ async function updateReal() {
   }
 }
 setInterval(updateReal, REAL_FETCH_INTERVAL);
-updateReal(); // Run immediately
+updateReal();
 
 // ------------------------------------------------------
-// 2️⃣ GENERATE SIMULATED PRICE (NEOSTOX STYLE)
+// 2️⃣ NEOSTOX STYLE MICRO SIMULATION
 // ------------------------------------------------------
 function simulate(real) {
   if (!real) return null;
-
-  // Very tiny smooth random micro-movement
   const micro = (Math.random() - 0.5) * 1.2;
   return +(real + micro).toFixed(2);
 }
 
-// Market depth simulation
+// Market depth
 function makeDepth(ltp) {
   return {
     bids: [
-      [+(ltp - 0.20).toFixed(2), Math.floor(Math.random() * 2000)],
-      [+(ltp - 0.50).toFixed(2), Math.floor(Math.random() * 1500)]
+      [+(ltp - 0.20).toFixed(2), Math.floor(Math.random()*2000)],
+      [+(ltp - 0.50).toFixed(2), Math.floor(Math.random()*1500)]
     ],
     asks: [
-      [+(ltp + 0.20).toFixed(2), Math.floor(Math.random() * 2000)],
-      [+(ltp + 0.50).toFixed(2), Math.floor(Math.random() * 1500)]
+      [+(ltp + 0.20).toFixed(2), Math.floor(Math.random()*2000)],
+      [+(ltp + 0.50).toFixed(2), Math.floor(Math.random()*1500)]
     ]
   };
 }
 
-// Generate individual tick
+// Tick generator
 function generateTick(sym) {
   const real = REAL[sym];
 
-  // Fallback when real price not available (rare)
+  // Fallback (rare)
   if (!real) {
     const fallback = 100 + Math.random() * 200;
     return {
@@ -91,10 +87,10 @@ function generateTick(sym) {
       ltp: fallback,
       real_price: fallback,
       timestamp: new Date().toISOString(),
-      volume: Math.floor(Math.random() * 900000),
-      oi: Math.floor(Math.random() * 30000),
+      volume: Math.floor(Math.random()*900000),
+      oi: Math.floor(Math.random()*30000),
       depth: makeDepth(fallback),
-      warning: "real price not available"
+      warning: "fallback used, real price missing"
     };
   }
 
@@ -106,14 +102,14 @@ function generateTick(sym) {
     ltp,
     real_price: real,
     timestamp: new Date().toISOString(),
-    volume: Math.floor(Math.random() * 900000),
-    oi: Math.floor(Math.random() * 30000),
+    volume: Math.floor(Math.random()*900000),
+    oi: Math.floor(Math.random()*30000),
     depth: makeDepth(ltp)
   };
 }
 
 // ------------------------------------------------------
-// 3️⃣ HTTP SERVER (REQUIRED FOR RENDER DETECTION)
+// 3️⃣ HTTP SERVER (REQUIRED FOR RENDER)
 // ------------------------------------------------------
 const server = http.createServer((req, res) => {
   res.writeHead(200, { "Content-Type": "text/plain" });
@@ -121,7 +117,7 @@ const server = http.createServer((req, res) => {
 });
 
 // ------------------------------------------------------
-// 4️⃣ WebSocket Server Setup
+// 4️⃣ WEBSOCKET SERVER
 // ------------------------------------------------------
 const wss = new WebSocket.Server({ server });
 
@@ -130,7 +126,7 @@ wss.on("connection", (ws) => {
 
   ws.send(JSON.stringify({
     type: "welcome",
-    msg: "Connected to Real Market + Simulated Feed"
+    msg: "Connected to REAL MARKET + Simulated Feed"
   }));
 });
 
@@ -140,7 +136,6 @@ wss.on("connection", (ws) => {
 setInterval(() => {
   const ticks = [];
 
-  // Send 10 random stocks per tick, like Neostox feed
   for (let i = 0; i < 10; i++) {
     const sym = SYMBOLS[Math.floor(Math.random() * SYMBOLS.length)];
     const tick = generateTick(sym);
@@ -161,7 +156,7 @@ setInterval(() => {
 }, TICK_INTERVAL);
 
 // ------------------------------------------------------
-// 6️⃣ RENDER PORT BINDING (MANDATORY)
+// 6️⃣ PORT BIND FOR RENDER
 // ------------------------------------------------------
 server.listen(PORT, "0.0.0.0", () => {
   console.log("WS server running on", PORT);
