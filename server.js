@@ -1,26 +1,30 @@
 // ------------------------------------------------------
 // REAL MARKET PRICE + SIMULATED MARKET FEED (NEOSTOX STYLE)
 // Render FREE HOSTING + MoneyControl LTP API (UNLIMITED)
+// AUTO-PINGER ADDED (NO 15-MIN SLEEP)
 // ------------------------------------------------------
 
 const WebSocket = require("ws");
 const http = require("http");
+const https = require("https");   // For auto-pinger
 const fetch = (...args) => import('node-fetch').then(({ default: f }) => f(...args));
 
 const PORT = process.env.PORT || 10000;
+const SELF_URL = "https://ws-feed.onrender.com/";   // << YOUR RENDER URL HERE
 
-// Tick intervals
+// INTERVALS
 const TICK_INTERVAL = 500;
 const REAL_FETCH_INTERVAL = 4000;
 
-// NSE symbols list
+// NSE Symbols
 const SYMBOLS = [
   "RELIANCE.NS","TCS.NS","INFY.NS","SBIN.NS","HDFCBANK.NS","ICICIBANK.NS",
   "TATAMOTORS.NS","HINDUNILVR.NS","LT.NS","WIPRO.NS","SUNPHARMA.NS",
   "AXISBANK.NS","POWERGRID.NS","ASIANPAINT.NS"
 ];
 
-let REAL = {}; // store real LTP
+// REAL PRICE STORAGE
+let REAL = {};
 
 // ------------------------------------------------------
 // REAL PRICE FROM MONEYCONTROL
@@ -29,17 +33,15 @@ async function fetchReal(symbol) {
   try {
     const pure = symbol.replace(".NS", "");
     const url = `https://priceapi.moneycontrol.com/pricefeed/nse/equitycash/${pure}`;
-    
+
     const r = await fetch(url);
     const d = await r.json();
 
-    if (d?.data?.pricecurrent) {
-      return Number(d.data.pricecurrent);
-    }
+    if (d?.data?.pricecurrent) return Number(d.data.pricecurrent);
 
     return null;
 
-  } catch(e) {
+  } catch (e) {
     console.log("Real fetch error:", e);
     return null;
   }
@@ -78,27 +80,20 @@ function makeDepth(ltp) {
 }
 
 // ------------------------------------------------------
-// 100% FIXED: SYMBOL ALWAYS PRINT
+// 100% FIXED SYMBOL
 // ------------------------------------------------------
 function generateTick(sym) {
-
   const symbolName = sym.replace(".NS", "");
-
-  // ensure symbol ALWAYS exists
-  if (!symbolName || symbolName.length === 0) {
-    console.log("Symbol missing, forcing symbol name");
-  }
 
   const real = REAL[sym];
   const ltp = simulateSafe(real);
 
-  // fallback ltp
   const finalLTP = ltp || (100 + Math.random()*200);
   const finalReal = real || finalLTP;
 
   return {
     type: "tick",
-    symbol: symbolName,           // ← ALWAYS PRINT
+    symbol: symbolName,
     ltp: finalLTP,
     real_price: finalReal,
     timestamp: new Date().toISOString(),
@@ -109,7 +104,7 @@ function generateTick(sym) {
 }
 
 // ------------------------------------------------------
-// HTTP (RENDER REQUIRED)
+// HTTP SERVER FOR RENDER
 // ------------------------------------------------------
 const server = http.createServer((req, res) => {
   res.writeHead(200, {"Content-Type": "text/plain"});
@@ -117,11 +112,11 @@ const server = http.createServer((req, res) => {
 });
 
 // ------------------------------------------------------
-// WEBSOCKET
+// WEBSOCKET SERVER
 // ------------------------------------------------------
-const wss = new WebSocket.Server({server});
+const wss = new WebSocket.Server({ server });
 
-wss.on("connection", ws => {
+wss.on("connection", (ws) => {
   console.log("Client connected");
   ws.send(JSON.stringify({
     type: "welcome",
@@ -134,11 +129,9 @@ wss.on("connection", ws => {
 // ------------------------------------------------------
 setInterval(() => {
   const ticks = [];
-
-  for (let i=0; i<10; i++) {
+  for (let i = 0; i < 10; i++) {
     const sym = SYMBOLS[Math.floor(Math.random()*SYMBOLS.length)];
-    const t = generateTick(sym);
-    ticks.push(t);
+    ticks.push(generateTick(sym));
   }
 
   const packet = JSON.stringify({
@@ -150,11 +143,21 @@ setInterval(() => {
   wss.clients.forEach(c => {
     if (c.readyState === WebSocket.OPEN) c.send(packet);
   });
-
 }, TICK_INTERVAL);
 
 // ------------------------------------------------------
-// RENDER BINDING
+// 🔥 AUTO-PINGER (NO 15-MINUTE SLEEP ON RENDER FREE TIER)
+// ------------------------------------------------------
+setInterval(() => {
+  https.get(SELF_URL, (res) => {
+    console.log("Pinger → keeping Render alive:", res.statusCode);
+  }).on("error", (e) => {
+    console.error("Pinger error:", e);
+  });
+}, 240000);  // EVERY 4 MINUTES (SAFE)
+
+// ------------------------------------------------------
+// PORT BIND FOR RENDER
 // ------------------------------------------------------
 server.listen(PORT, "0.0.0.0", () => {
   console.log("WS server running on", PORT);
