@@ -10,54 +10,59 @@ const fetch = (...args) => import('node-fetch').then(({ default: f }) => f(...ar
 const PORT = process.env.PORT || 10000;
 
 // INTERVALS
-const TICK_INTERVAL = 500;         // 500ms for WS ticks
-const REAL_FETCH_INTERVAL = 4000;  // update real every 4 sec
+const TICK_INTERVAL = 500;
+const REAL_FETCH_INTERVAL = 4000;
 
-// NSE STOCK LIST
+// SYMBOL LIST
 const SYMBOLS = [
   "RELIANCE.NS","TCS.NS","INFY.NS","SBIN.NS","HDFCBANK.NS","ICICIBANK.NS",
   "TATAMOTORS.NS","HINDUNILVR.NS","LT.NS","WIPRO.NS","SUNPHARMA.NS",
   "AXISBANK.NS","POWERGRID.NS","ASIANPAINT.NS"
 ];
 
-// Store real prices
-let REAL = {};
+let REAL = {}; // store real LTP
 
 // ------------------------------------------------------
-// 1️⃣ REAL LTP FETCH (UNLIMITED API - MONEYCONTROL)
+// REAL LTP FETCH (MONEYCONTROL)
 // ------------------------------------------------------
 async function fetchReal(symbol) {
   try {
-    const pure = symbol.replace(".NS", ""); // TCS.NS → TCS
+    const pure = symbol.replace(".NS", "");
     const url = `https://priceapi.moneycontrol.com/pricefeed/nse/equitycash/${pure}`;
 
     const r = await fetch(url);
     const d = await r.json();
 
-    return d.data?.pricecurrent || null;
+    const price = d?.data?.pricecurrent;
+
+    if (!price) return null;   // return null safely
+    return price;
+
   } catch (e) {
     console.log("Real fetch error:", e);
     return null;
   }
 }
 
-// Update all real prices every 4 sec
+// update periodically
 async function updateReal() {
   console.log("Updating real prices...");
   for (let s of SYMBOLS) {
     const p = await fetchReal(s);
-    if (p) REAL[s] = p;
+    if (p !== null) REAL[s] = p;
   }
 }
 setInterval(updateReal, REAL_FETCH_INTERVAL);
-updateReal(); // run immediately
+updateReal();
 
 // ------------------------------------------------------
-// 2️⃣ SIMULATED TICKS (NEOSTOX STYLE)
+// SAFE SIMULATION (NO CRASH)
 // ------------------------------------------------------
-function simulate(real) {
-  const micro = (Math.random() - 0.5) * 1.2; // smooth movement
-  return +(real + micro).toFixed(2);
+function simulateSafe(real) {
+  if (!real || isNaN(real)) return null; // protection
+
+  const micro = (Math.random() - 0.5) * 1.2;
+  return +(Number(real) + micro).toFixed(2);
 }
 
 function makeDepth(ltp) {
@@ -73,41 +78,30 @@ function makeDepth(ltp) {
   };
 }
 
+// MAIN TICK GENERATOR
 function generateTick(sym) {
+
   const real = REAL[sym];
+  const ltp = simulateSafe(real);
 
-  // fallback if real fails (rare)
-  if (!real) {
-    const fallback = 100 + Math.random() * 200;
-    return {
-      type: "tick",
-      symbol: sym.replace(".NS", ""),
-      ltp: fallback,
-      real_price: fallback,
-      timestamp: new Date().toISOString(),
-      volume: Math.floor(Math.random() * 900000),
-      oi: Math.floor(Math.random() * 30000),
-      depth: makeDepth(fallback),
-      warning: "fallback used"
-    };
-  }
-
-  const ltp = simulate(real);
+  // fallback if real null / api delay
+  const finalLTP = ltp || (100 + Math.random() * 200);
+  const finalReal = real || finalLTP;
 
   return {
     type: "tick",
     symbol: sym.replace(".NS", ""),
-    ltp,
-    real_price: real,
+    ltp: finalLTP,
+    real_price: finalReal,
     timestamp: new Date().toISOString(),
     volume: Math.floor(Math.random() * 900000),
     oi: Math.floor(Math.random() * 30000),
-    depth: makeDepth(ltp)
+    depth: makeDepth(finalLTP)
   };
 }
 
 // ------------------------------------------------------
-// 3️⃣ HTTP SERVER (REQUIRED BY RENDER)
+// HTTP SERVER FOR RENDER
 // ------------------------------------------------------
 const server = http.createServer((req, res) => {
   res.writeHead(200, { "Content-Type": "text/plain" });
@@ -115,7 +109,7 @@ const server = http.createServer((req, res) => {
 });
 
 // ------------------------------------------------------
-// 4️⃣ WEBSOCKET SERVER
+// WEBSOCKET SERVER
 // ------------------------------------------------------
 const wss = new WebSocket.Server({ server });
 
@@ -128,30 +122,30 @@ wss.on("connection", (ws) => {
 });
 
 // ------------------------------------------------------
-// 5️⃣ SEND TICKS CONTINUOUSLY
+// SEND MARKET TICKS CONTINUOUSLY
 // ------------------------------------------------------
 setInterval(() => {
   const ticks = [];
 
   for (let i = 0; i < 10; i++) {
-    const sym = SYMBOLS[Math.floor(Math.random() * SYMBOLS.length)];
-    ticks.push(generateTick(sym));
+    const s = SYMBOLS[Math.floor(Math.random() * SYMBOLS.length)];
+    ticks.push(generateTick(s));
   }
 
-  const packet = JSON.stringify({
+  const pack = JSON.stringify({
     type: "batch_ticks",
     timestamp: new Date().toISOString(),
     ticks
   });
 
-  wss.clients.forEach(client => {
-    if (client.readyState === WebSocket.OPEN) client.send(packet);
+  wss.clients.forEach(c => {
+    if (c.readyState === WebSocket.OPEN) c.send(pack);
   });
 
 }, TICK_INTERVAL);
 
 // ------------------------------------------------------
-// 6️⃣ PORT BINDING FOR RENDER
+// PORT BIND FOR RENDER
 // ------------------------------------------------------
 server.listen(PORT, "0.0.0.0", () => {
   console.log("WS server running on", PORT);
