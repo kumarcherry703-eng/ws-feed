@@ -43,7 +43,7 @@ async function updateReal() {
 setInterval(updateReal, REAL_FETCH_INTERVAL);
 updateReal();
 
-// Simulate price around real price
+// Simulate prices
 function simulate(real) {
   if (!real) return null;
   const micro = (Math.random() - 0.5) * 1.2;
@@ -112,4 +112,7 @@ setInterval(() => {
 
 }, TICK_INTERVAL);
 
-server.listen(PORT, () => console.log("WS server running on", PORT));
+// ------------- IMPORTANT FIX (Render Requirement) -----------------
+server.listen(PORT, "0.0.0.0", () => {
+  console.log("WS server running on", PORT);
+});
